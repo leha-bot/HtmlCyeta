@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<!-- (c) 2016, AlexFails.
+Внимание! Этот код может распространяться только по лицензии WTFPL!
+Ознакомьтесь с ее текстом по этому адресу: http://ru.wikipedia.org/wiki/WTFPL
+-->
+<html>
+<head>
+<title>Canvas Test: Jumping Square блабла</title>
+<meta http-equiv="Content-Type" content="text/html;charset=windows-1251" />
+</head>
+<body>
+<canvas id="gameView" width="400" height="300">Sorryan, but your browser is a mammoth's crap and can't Canvas.</canvas>
+<script type="text/javascript">
+function clone(obj) {
+	var res = {};
+	for(var t in obj) { // скопируем все поля.
+		res[t] = obj[t];
+	}
+	return res;
+}
+var game = {};
+game.cvs = document.getElementById('gameView');
+game.ctx = game.cvs.getContext("2d");
+game.view = {w: game.cvs.width, h: game.cvs.height};
+game.objects = [];
+c = game.ctx; // для краткости.
+game.makeObject = function() {
+	var	dummy = {x:0, y:0, w:0, h:0, render: function(cvs) {
+	cvs.fillRect(this.x,this.y,this.w,this.h)
+	}, physics: {static:true, vx: 0, vy: 0, stay: null},
+	moveBy: function(dx, dy) {
+		this.x += dx;
+		this.y += dy;
+		stay = null;
+	}} // Объект-пустышка с нужными полями игровых объектов.
+	return clone(dummy); //obj;
+}
+game.time = 0;
+game.simulate = false;
+game.render = function() {
+	this.ctx.clearRect(0, 0, this.view.w, this.view.h);
+	for (var i = 0; i < this.objects.length; i++) {
+		this.objects[i].render(this.ctx);
+	}
+}
+
+// Решает квадратные уравнения.
+game.solveX2Equation = function(a, b, c) {
+	var solution = {D: b*b - 4*a*c, x: [NaN, NaN]};
+	if (solution.D > 0) {
+		solution.x[0] = (-b - Math.sqrt(solution.D)) / (2 * a);
+		solution.x[1] = (-b + Math.sqrt(solution.D)) / (2 * a);
+	} else if (solution.D == 0) {
+		solution.x[0] = -b / (2 * a);
+		solution.x[1] = solution.x[0];
+	}
+	return solution;
+}
+
+game.solveLinearEquation = function(k, b) {
+	return -b / k;
+}
+
+game.physics = function() {
+	for(var i = 0; i < this.objects.length; i++) {
+	var o1 = this.objects[i];
+	var collide = false;
+		if (!o1.physics.static && o1.physics.stay == null) {
+			o1.physics.vy += 10; // Ускорение свободного падения - допустим, что оно 10, чтобы легче считать. (а не 9,8)
+			} else continue;
+		// continue;
+		for (var i2 = 0; i2 < this.objects.length; i2++) {
+			var o2 = this.objects[i2];
+			if (i2 == i)
+				continue;
+			// чтобы узнать, пересекутся ли объекты в ближайшем будущем,
+			// решим уравнение y1 + vy1*t + ay1*t*t/2 = y2 + vy2*t + ay2*t*t/2
+			// x1 - x2 + t*(vx1-vx2) + t*t*(ax1-ax2) = 0;
+			//
+			var a = (o1.physics.static ? 0 : 10) - (o2.physics.static ? 0 : 10);
+			var y = o1.y + o1.h;
+			if (a == 0) {
+				t = this.solveLinearEquation(o1.physics.vy - o2.physics.vy, 
+					y - o2.y); //низ рассматриваем объекта o1
+			} else {
+				t = this.solveX2Equation(a, o1.physics.vy - o2.physics.vy,
+					y - o2.y);
+				t = Number.isNaN(t.x[0]) ? -1 : (t.x[0] > 0 ? (t.x[1] > 0 ? Math.max(t.x[0], t.x[1]) : t.x[0]) : t.x[1]);
+			}
+			// если шаг времени <= 1 и >= 0, то коллизия произошла.
+			// если шаг времени < 0, то коллизия никогда не произойдет.
+			if (t >= 0) {
+				if (t <= 1) {
+					// подвинем объект по оси Y в обратном направлении
+					//o1.y -= o1.physics.vy*(t-1);
+					//o1.y -= o1.h;
+					o1.physics.vy = 0; // глушим скорость, абсолютно неупругое столкновение
+					collide = true;
+					if (t == 0) {
+						continue;
+					}
+					o1.y = o2.y - o1.h;
+					
+				}
+			}
+		}
+		if (!collide) {
+			// Для большого количества объектов не подойдет такой способ, 
+			// ибо сложность алгоритма возрастает в арифметической прогрессии.
+			// Но в качестве примера сойдет.
+			o1.x += o1.physics.vx;
+			o1.y += o1.physics.vy;
+		}
+	}
+}
+game.physics.hitTest = function(rt1, rt2, penetrate) {
+	var collide = rt1.x + rt1.w >= rt2.x && rt1.y + rt1.h >= rt2.y
+		&& rt1.x < rt2.x + rt2.w && rt1.y < rt2.y + rt2.h;
+	// посчитаем, на сколько пересеклись прямоугольники
+	if (typeof penetrate !== "undefined" && collide !== false) {
+		penetrate.x = Math.max(rt1.x, rt2.x);
+		penetrate.y = Math.max(rt1.y, rt2.y);
+		penetrate.w = Math.min(rt1.x + rt1.w, rt2.x + rt2.w)
+			- penetrate.x;
+		penetrate.h = Math.min(rt1.y + rt1.h, rt2.y + rt2.h)
+			- penetrate.y;
+	}
+	return collide;
+}
+function init_all() {
+	ground = game.makeObject();
+	sq = game.makeObject();
+	game.physics.reset();
+	game.objects.push(ground);
+	game.objects.push(sq);
+}
+game.physics.reset = function() {
+	ground.y = game.view.h - 3;
+	ground.w = game.view.w;
+	ground.h = 3;
+	ground.x = 0;
+	sq.w = 40;
+	sq.h = 50;
+	sq.x = 0;
+	sq.y = 0;
+	sq.physics.static = false;
+	game.time = 0;
+}
+
+function prn_coords() {
+	document.getElementById('info').innerText = "x="+sq.x+";y="+sq.y+";time="+game.time+";left:"+game.keys.left+";right:"+game.keys.right;
+}
+function step() {
+	game.loop();
+	prn_coords();
+}
+function reset() {
+	game.physics.reset();
+	game.render();
+	prn_coords();
+}
+function toggle_simulation() {
+	game.simulate=!game.simulate;
+	loop();
+}
+init_all();
+
+game.keys = {left:false, right: false}
+game.controller = function() {
+	if (this.keys.left) {
+		sq.x -=10;
+	}
+	else if (this.keys.right) {
+		sq.x += 10;
+	}
+}
+addEventListener("keydown", function(e) {
+	switch(e.keyCode) {
+		case KeyEvent.DOM_VK_RIGHT:
+		game.keys.right = true;
+		break;
+		
+		case KeyEvent.DOM_VK_LEFT:
+		game.keys.left = true;
+		break;
+		case KeyEvent.DOM_VK_UP:
+		sq.physics.vy -= 60;
+		game.loop();
+		break;
+	}
+}, false)
+addEventListener("keyup", function(e) {
+	switch (e.keyCode) {
+		case KeyEvent.DOM_VK_RIGHT:
+		game.keys.right = false;
+		break;
+		case KeyEvent.DOM_VK_LEFT:
+		game.keys.left = false;
+	}
+});
+addEventListener("keypress", function(e) {
+		switch(e.key){
+	
+		case 's':
+		game.loop(); break;
+		case 'r':
+		reset(); break;
+		case 'p':
+		toggle_simulation(); break;
+	}
+	prn_coords();
+});
+game.loop = function() {
+	this.controller();
+	this.physics();
+	this.render();
+	this.time++;
+}
+function loop() {
+	if(game.simulate)
+		requestAnimationFrame(loop);
+	game.loop();
+	prn_coords();
+}
+loop();
+</script>
+<div id="info">x=0;y=0;time=0</div>
+<button accesskey="R" onclick="reset()"><u>R</u>eset Simulation</button>
+<button accesskey="S" onclick="step()"><u>S</u>tep</button>
+<button accesskey="P" onclick="toggle_simulation()"><u>P</u>lay/Pause</button>
+</body>
+</html>
